@@ -1,0 +1,16 @@
+# Nothing generated lives here: the package ships hand-written ES modules and a
+# single HTML document, so there is no build output to ignore. These are the
+# things that must never be committed.
+
+node_modules/
+package-lock.json
+pnpm-lock.yaml
+
+# macOS
+.DS_Store
+
+# Local captures of the running API. The shapes are documented in
+# docs/api-contract.md; raw dumps contain the account's library and are not
+# safe to publish.
+docs/*.sample.json
+docs/*.sample.txt

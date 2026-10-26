@@ -1,0 +1,1086 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>音乐 · 侧边栏</title>
+<style>
+  :root {
+    --bg: rgba(22, 26, 34, 0.92);
+    --bg-soft: rgba(255, 255, 255, 0.045);
+    --line: rgba(255, 255, 255, 0.075);
+    --ink: #e8ecf3;
+    --ink-dim: #8b95a7;
+    --ink-faint: #5d6677;
+    --accent: #4c9dff;
+    --accent-soft: rgba(76, 157, 255, 0.16);
+    --live: #37d67a;
+    --radius: 14px;
+  }
+  * { box-sizing: border-box; -webkit-font-smoothing: antialiased; }
+  html, body {
+    margin: 0; padding: 0;
+    background: transparent;
+    font: 13px/1.45 -apple-system, BlinkMacSystemFont, "PingFang SC", "Segoe UI", sans-serif;
+    color: var(--ink);
+    overflow: hidden;
+  }
+  body { padding: 4px; }
+
+  .dock {
+    background: var(--bg);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 9px 10px 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    box-shadow: 0 8px 28px rgba(0,0,0,.38), inset 0 1px 0 rgba(255,255,255,.05);
+    backdrop-filter: blur(22px) saturate(150%);
+  }
+  .dock.idle { opacity: .85; }
+
+  /* ---------------------------------------------------------------- header */
+  .head { display: flex; align-items: center; gap: 6px; min-height: 14px; }
+  .wave { display: inline-flex; align-items: flex-end; gap: 2px; height: 11px; flex: 0 0 auto; }
+  .wave i { width: 2px; border-radius: 1px; background: var(--accent); height: 40%; }
+  .wave i:nth-child(2) { height: 75%; }
+  .wave i:nth-child(3) { height: 100%; }
+  .wave i:nth-child(4) { height: 60%; }
+  .wave i:nth-child(5) { height: 30%; }
+  .dock:not(.playing) .wave i { height: 25% !important; animation: none; }
+  .dock.playing .wave i { animation: bounce .9s ease-in-out infinite; }
+  .dock.playing .wave i:nth-child(2) { animation-delay: .12s; }
+  .dock.playing .wave i:nth-child(3) { animation-delay: .24s; }
+  .dock.playing .wave i:nth-child(4) { animation-delay: .36s; }
+  .dock.playing .wave i:nth-child(5) { animation-delay: .48s; }
+  @keyframes bounce { 0%,100% { transform: scaleY(.45); } 50% { transform: scaleY(1); } }
+  .head .label { font-size: 11.5px; font-weight: 600; letter-spacing: .2px; color: var(--ink); flex: 1 1 auto;
+                 overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .iconbtn {
+    flex: 0 0 auto; display: grid; place-items: center;
+    width: 20px; height: 20px; padding: 0; border: 0; border-radius: 6px;
+    background: transparent; color: var(--ink-dim); cursor: pointer;
+    transition: background .15s, color .15s;
+  }
+  .iconbtn:hover { background: var(--bg-soft); color: var(--ink); }
+  .iconbtn svg { width: 13px; height: 13px; display: block; }
+
+  /* ------------------------------------------------------------------- now */
+  .now { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .cover {
+    width: 38px; height: 38px; flex: 0 0 38px; border-radius: 8px;
+    background: linear-gradient(135deg, #24303f, #18202b) center/cover no-repeat;
+    box-shadow: 0 2px 8px rgba(0,0,0,.45); overflow: hidden; position: relative;
+  }
+  .cover::after {
+    content: ""; position: absolute; inset: 0; border-radius: 8px;
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,.08); pointer-events: none;
+  }
+  .meta { min-width: 0; flex: 1 1 auto; display: flex; flex-direction: column; gap: 1px; }
+  .title {
+    font-size: 13px; font-weight: 650; letter-spacing: .1px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .sub { display: flex; align-items: center; gap: 5px; min-width: 0; }
+  .artist { font-size: 11px; color: var(--ink-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .badge {
+    flex: 0 0 auto; font-size: 8.5px; font-weight: 700; letter-spacing: .3px;
+    padding: 1px 4px; border-radius: 4px; color: var(--accent);
+    border: 1px solid rgba(76,157,255,.5); background: var(--accent-soft);
+    text-transform: uppercase; line-height: 1.35;
+  }
+  .badge:empty { display: none; }
+
+  /* ---------------------------------------------------------------- lyrics */
+  .lyrics {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    min-height: 32px; gap: 1px; text-align: center;
+    mask-image: linear-gradient(180deg, transparent, #000 22%, #000 78%, transparent);
+    -webkit-mask-image: linear-gradient(180deg, transparent, #000 22%, #000 78%, transparent);
+  }
+  .ln { font-size: 11px; line-height: 15px; color: var(--ink-faint); white-space: nowrap;
+        overflow: hidden; text-overflow: ellipsis; max-width: 100%; transition: color .2s; }
+  .ln.cur { font-size: 12.5px; font-weight: 650; color: var(--accent); text-shadow: 0 0 14px rgba(76,157,255,.35); }
+  /* Translation of the current line: same row rhythm, quieter. An empty one
+     collapses so the block does not reserve space for a line that never comes. */
+  .ln.tr { font-size: 10.5px; color: var(--ink-dim); font-style: normal; }
+  .ln.tr:empty { display: none; }
+  .lyrics.plain .ln.prev, .lyrics.plain .ln.next { visibility: hidden; }
+
+  /* ---------------------------------------------------------------- seek */
+  .seek { display: flex; flex-direction: column; gap: 3px; }
+  .bar { position: relative; height: 12px; display: flex; align-items: center; cursor: pointer; }
+  .bar::before { content: ""; position: absolute; left: 0; right: 0; height: 3px; border-radius: 2px; background: rgba(255,255,255,.13); }
+  .fill { position: absolute; left: 0; height: 3px; border-radius: 2px;
+          background: linear-gradient(90deg, #2f7fe0, var(--accent)); width: 0; }
+  .fill::after { content: ""; position: absolute; right: -4px; top: 50%; width: 8px; height: 8px; margin-top: -4px;
+                 border-radius: 50%; background: #fff; box-shadow: 0 0 8px rgba(76,157,255,.9); opacity: 0; transition: opacity .15s; }
+  .bar:hover .fill::after { opacity: 1; }
+  .times { display: flex; justify-content: space-between; font-size: 9.5px; color: var(--ink-faint);
+           font-variant-numeric: tabular-nums; margin-top: -2px; }
+
+  /* -------------------------------------------------------------- controls */
+  .ctrl { display: flex; align-items: center; justify-content: space-between; gap: 2px; }
+  .ctrl .iconbtn { width: 26px; height: 26px; }
+  .ctrl .iconbtn svg { width: 15px; height: 15px; }
+  .playbtn {
+    width: 32px; height: 32px; border-radius: 50%; border: 0; cursor: pointer;
+    display: grid; place-items: center; color: #fff;
+    background: linear-gradient(160deg, #5aa6ff, #2f7fe0);
+    box-shadow: 0 4px 14px rgba(47,127,224,.5);
+    transition: transform .12s, box-shadow .15s;
+  }
+  .playbtn:hover { transform: scale(1.06); box-shadow: 0 5px 18px rgba(47,127,224,.65); }
+  .playbtn:active { transform: scale(.96); }
+  .playbtn svg { width: 15px; height: 15px; }
+  .iconbtn.on { color: var(--accent); }
+  /* The translation toggle carries a glyph instead of an icon. */
+  #trtoggle { font-size: 10.5px; font-weight: 700; font-family: inherit; line-height: 1; }
+  #trtoggle.on { color: var(--accent); background: var(--accent-soft); }
+
+  /* ------------------------------------------------------------------ foot */
+  .foot { display: flex; align-items: center; gap: 5px; font-size: 10px; color: var(--ink-faint); }
+  .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--ink-faint); flex: 0 0 auto; }
+  .dot.live { background: var(--live); box-shadow: 0 0 6px rgba(55,214,122,.7); }
+  .foot .spacer { flex: 1 1 auto; }
+  .vol { display: flex; align-items: center; gap: 4px; }
+  .vol input[type=range] {
+    -webkit-appearance: none; appearance: none; width: 52px; height: 3px; border-radius: 2px;
+    background: rgba(255,255,255,.16); outline: none; cursor: pointer;
+  }
+  .vol input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none; width: 8px; height: 8px; border-radius: 50%; background: #cfd8e6;
+    box-shadow: 0 0 0 3px rgba(0,0,0,.25);
+  }
+
+  /* --------------------------------------------------------------- tray */
+  .tray { display: none; flex-direction: column; gap: 6px; }
+  .dock.open .tray { display: flex; }
+  .trayhead { display: flex; align-items: center; gap: 6px; font-size: 10px; color: var(--ink-faint);
+              text-transform: uppercase; letter-spacing: .6px; margin-top: 2px; }
+  .trayhead .spacer { flex: 1 1 auto; }
+  .djrow { display: flex; align-items: center; gap: 6px; padding: 6px 7px; border-radius: 8px;
+           background: var(--bg-soft); border: 1px solid var(--line); }
+  .djrow .vibe { flex: 1 1 auto; min-width: 0; font-size: 10.5px; color: var(--ink-dim);
+                 white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .switch { width: 26px; height: 15px; border-radius: 8px; border: 0; cursor: pointer; padding: 0;
+            background: rgba(255,255,255,.16); position: relative; transition: background .18s; flex: 0 0 auto; }
+  .switch::after { content: ""; position: absolute; top: 2px; left: 2px; width: 11px; height: 11px;
+                   border-radius: 50%; background: #fff; transition: transform .18s; }
+  .switch.on { background: var(--accent); }
+  .switch.on::after { transform: translateX(11px); }
+  .qlist { max-height: 168px; overflow-y: auto; margin: 0; padding: 0; list-style: none;
+           display: flex; flex-direction: column; gap: 1px; scrollbar-width: thin; }
+  .qlist::-webkit-scrollbar { width: 4px; }
+  .qlist::-webkit-scrollbar-thumb { background: rgba(255,255,255,.15); border-radius: 2px; }
+  .qitem { display: flex; align-items: center; gap: 6px; padding: 4px 6px; border-radius: 6px;
+           cursor: pointer; min-width: 0; }
+  .qitem:hover { background: var(--bg-soft); }
+  .qitem .n { font-size: 9px; color: var(--ink-faint); width: 14px; flex: 0 0 14px; text-align: right;
+              font-variant-numeric: tabular-nums; }
+  .qitem .t { flex: 1 1 auto; min-width: 0; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .qitem .a { flex: 0 1 auto; font-size: 10px; color: var(--ink-faint); white-space: nowrap;
+              overflow: hidden; text-overflow: ellipsis; max-width: 30%; }
+  .qitem.cur { background: var(--accent-soft); }
+  .qitem.cur .t { color: var(--accent); font-weight: 600; }
+  .qitem .djmark { font-size: 8px; color: var(--ink-faint); flex: 0 0 auto; }
+  /* Per-row queue actions: play next / append. Dimmed until the row is hovered,
+     so twenty results do not read as a wall of buttons. */
+  .qitem .acts { display: flex; gap: 1px; flex: 0 0 auto; opacity: .35; transition: opacity .12s; }
+  .qitem:hover .acts, .qitem .acts:focus-within { opacity: 1; }
+  .act { display: grid; place-items: center; width: 18px; height: 18px; padding: 0; border: 0;
+         border-radius: 4px; background: transparent; color: var(--ink-dim); cursor: pointer; }
+  .act:hover { background: rgba(255,255,255,.1); color: var(--accent); }
+  .act svg { width: 11px; height: 11px; display: block; }
+  .empty { font-size: 10.5px; color: var(--ink-faint); text-align: center; padding: 10px 0; }
+
+  /* tabs: queue / playlists / search */
+  .tabs { display: flex; gap: 2px; background: rgba(255,255,255,.04); border-radius: 7px; padding: 2px; }
+  .tab { flex: 1 1 0; border: 0; background: transparent; color: var(--ink-faint); cursor: pointer;
+         font-size: 10.5px; padding: 4px 0; border-radius: 5px; transition: background .15s, color .15s; }
+  .tab:hover { color: var(--ink-dim); }
+  .tab.on { background: rgba(76,157,255,.18); color: #a9cbff; font-weight: 650; }
+  .pane { display: flex; flex-direction: column; gap: 4px; }
+  .pane[hidden] { display: none; }
+  .searchrow, .moodrow { display: flex; gap: 4px; align-items: center; }
+  .searchrow input, .moodrow input {
+    flex: 1 1 auto; min-width: 0; background: rgba(255,255,255,.05); border: 1px solid var(--line);
+    border-radius: 7px; padding: 5px 8px; color: var(--ink); font-size: 11px; outline: none;
+    font-family: inherit;
+  }
+  .searchrow input::placeholder, .moodrow input::placeholder { color: var(--ink-faint); }
+  .searchrow input:focus, .moodrow input:focus {
+    border-color: rgba(76,157,255,.55); background: rgba(76,157,255,.08);
+  }
+  .plitem { display: flex; align-items: center; gap: 7px; padding: 4px 6px; border-radius: 6px;
+            cursor: pointer; min-width: 0; }
+  .plitem:hover { background: var(--bg-soft); }
+  .plitem .cov { width: 26px; height: 26px; flex: 0 0 26px; border-radius: 5px;
+                 background: rgba(255,255,255,.08) center/cover no-repeat; }
+  .plitem .nm { flex: 1 1 auto; min-width: 0; font-size: 11px; white-space: nowrap;
+                overflow: hidden; text-overflow: ellipsis; }
+  .plitem .ct { font-size: 9.5px; color: var(--ink-faint); flex: 0 0 auto; font-variant-numeric: tabular-nums; }
+  .backrow { display: flex; align-items: center; gap: 5px; font-size: 10px; color: var(--ink-dim);
+             padding: 3px 6px 5px; white-space: nowrap; overflow: hidden; }
+  .backrow button { border: 0; background: transparent; color: var(--accent); cursor: pointer;
+                    font-size: 10.5px; padding: 0; font-family: inherit; }
+
+  /* ------------------------------------------------------------- rail mode */
+  body.rail { padding: 2px; }
+  body.rail .dock { padding: 5px; border-radius: 10px; align-items: center; gap: 0; }
+  body.rail .head, body.rail .lyrics, body.rail .seek, body.rail .foot, body.rail .tray,
+  body.rail .ctrl .iconbtn, body.rail .meta, body.rail .now .like { display: none; }
+  body.rail .now { gap: 0; }
+  body.rail .ctrl { gap: 0; }
+  body.rail .cover { width: 32px; height: 32px; flex-basis: 32px; cursor: pointer; }
+  body.rail .playbtn { position: absolute; inset: 5px 3px 3px; width: auto; height: auto; border-radius: 18px;
+                       background: rgba(10,14,20,.72); backdrop-filter: blur(3px); opacity: 0; transition: opacity .15s; }
+  body.rail .dock:hover .playbtn { opacity: 1; }
+  body.rail .playbtn svg { width: 13px; height: 13px; }
+</style>
+</head>
+<body>
+<div class="dock idle" id="dock">
+  <div class="head">
+    <span class="wave"><i></i><i></i><i></i><i></i><i></i></span>
+    <span class="label" id="headlabel">未在播放</span>
+    <button class="iconbtn" id="trtoggle" title="歌词翻译：开 / 关">译</button>
+    <button class="iconbtn" id="chev" title="展开播放列表">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>
+    </button>
+  </div>
+
+  <div class="now">
+    <div class="cover" id="cover"></div>
+    <div class="meta">
+      <div class="title" id="title">未在播放</div>
+      <div class="sub"><span class="artist" id="artist">在播放器里点一首歌</span><span class="badge" id="badge"></span></div>
+    </div>
+    <button class="iconbtn like" id="like" title="喜欢">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M20.8 5.6a5.1 5.1 0 0 0-7.2 0L12 7.2l-1.6-1.6a5.1 5.1 0 1 0-7.2 7.2L12 21.6l8.8-8.8a5.1 5.1 0 0 0 0-7.2z"/></svg>
+    </button>
+  </div>
+
+  <div class="lyrics plain" id="lyrics">
+    <div class="ln prev" id="lprev"></div>
+    <div class="ln cur" id="lcur">♪</div>
+    <div class="ln tr" id="ltrans"></div>
+    <div class="ln next" id="lnext"></div>
+  </div>
+
+  <div class="seek">
+    <div class="bar" id="bar"><div class="fill" id="fill"></div></div>
+    <div class="times"><span id="tpos">00:00</span><span id="tdur">00:00</span></div>
+  </div>
+
+  <div class="ctrl">
+    <button class="iconbtn" id="mode" title="播放模式"></button>
+    <button class="iconbtn" id="prev" title="上一首">
+      <svg viewBox="0 0 24 24" fill="currentColor"><path d="M18 5v14l-9-7 9-7zM7 5h2v14H7z"/></svg>
+    </button>
+    <button class="playbtn" id="play" title="播放/暂停"></button>
+    <button class="iconbtn" id="next" title="下一首">
+      <svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 5v14l9-7-9-7zM15 5h2v14h-2z"/></svg>
+    </button>
+    <button class="iconbtn" id="qbtn" title="播放列表">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h11M4 12h11M4 17h7"/><path d="M17 12l4 4-4 4z" fill="currentColor" stroke="none"/></svg>
+    </button>
+  </div>
+
+  <div class="foot">
+    <span class="dot" id="dot"></span><span id="status">连接中…</span>
+    <span class="spacer"></span>
+    <span class="vol">
+      <button class="iconbtn" id="mute" title="静音">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5L6 9H3v6h3l5 4V5z"/><path d="M16 9a4 4 0 0 1 0 6"/><path d="M19 6.5a8 8 0 0 1 0 11"/></svg>
+      </button>
+      <input type="range" id="volume" min="0" max="100" value="80" title="音量">
+    </span>
+  </div>
+
+  <div class="tray" id="tray">
+    <div class="djrow">
+      <span class="vibe" id="djvibe">AI DJ</span>
+      <button class="switch" id="djswitch" title="AI DJ 开关"></button>
+    </div>
+    <div class="moodrow">
+      <input id="djprompt" type="text" placeholder="心情 / 场景，回车生效（如：雨天 爵士）"
+             autocomplete="off" spellcheck="false">
+      <button class="iconbtn" id="djreplan" title="按这个心情重新规划">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 3v6h-6"/></svg>
+      </button>
+    </div>
+    <div class="tabs">
+      <button class="tab on" data-tab="queue">队列</button>
+      <button class="tab" data-tab="lists">歌单</button>
+      <button class="tab" data-tab="search">搜索</button>
+    </div>
+    <div class="pane" id="pane-queue">
+      <div class="trayhead"><span>播放列表</span><span class="spacer"></span><span id="qcount"></span></div>
+      <ul class="qlist" id="qlist"></ul>
+    </div>
+    <div class="pane" id="pane-lists" hidden>
+      <ul class="qlist" id="plist"></ul>
+    </div>
+    <div class="pane" id="pane-search" hidden>
+      <div class="searchrow">
+        <input id="sinput" type="search" placeholder="搜索歌曲 / 歌手…" autocomplete="off" spellcheck="false">
+      </div>
+      <ul class="qlist" id="slist"></ul>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  var API = '/music/api';
+  var RAIL = new URLSearchParams(location.search).get('rail') === '1';
+  if (RAIL) document.body.classList.add('rail');
+
+  var $ = function (id) { return document.getElementById(id); };
+  var state = null;          // latest /state
+  var lyric = [];            // [{at, text}] — the track's own lines
+  var translation = [];      // parallel LRC timeline; Chinese for foreign songs
+  var romaji = [];           // second fallback timeline
+
+  /**
+   * Preferences live in localStorage: this page is its own document, and the
+   * host has no settings endpoint for widget-local choices.
+   */
+  function readPref(key, fallback) {
+    try {
+      var raw = localStorage.getItem(key);
+      return raw === null ? fallback : raw === '1';
+    } catch (error) {
+      return fallback; // a hardened context can deny storage entirely
+    }
+  }
+  function writePref(key, value) {
+    try {
+      localStorage.setItem(key, value ? '1' : '0');
+    } catch (error) {
+      /* not persisted; the toggle still works for this session */
+    }
+  }
+
+  /** Translation defaults ON: a foreign track with no translation shows nothing. */
+  var showTranslation = readPref('dsh-music-dock:translation', true);
+  var lyricTrack = null;     // id the lyric array belongs to
+  var lyricLine = -2;        // highlighted index cache
+  var open = false;
+  var lastPosPaint = 0;
+  var transportAt = 0;       // performance.now() of the last reported position
+  var transportPos = 0;
+  var dragging = false;
+
+  var ICON = {
+    play: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>',
+    pause: '<svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>',
+    list: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 2l4 4-4 4"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><path d="M7 22l-4-4 4-4"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>',
+    shuffle: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 3h5v5"/><path d="M4 20L21 3"/><path d="M21 16v5h-5"/><path d="M15 15l6 6"/><path d="M4 4l5 5"/></svg>',
+    single: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 2l4 4-4 4"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><path d="M7 22l-4-4 4-4"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/><text x="12" y="15.5" font-size="8" font-weight="700" fill="currentColor" stroke="none" text-anchor="middle">1</text></svg>',
+    muted: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5L6 9H3v6h3l5 4V5z"/><path d="M17 9l4 6M21 9l-4 6"/></svg>',
+    vol: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5L6 9H3v6h3l5 4V5z"/><path d="M16 9a4 4 0 0 1 0 6"/><path d="M19 6.5a8 8 0 0 1 0 11"/></svg>',
+    heart: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M20.8 5.6a5.1 5.1 0 0 0-7.2 0L12 7.2l-1.6-1.6a5.1 5.1 0 1 0-7.2 7.2L12 21.6l8.8-8.8a5.1 5.1 0 0 0 0-7.2z"/></svg>',
+  };
+
+  var QUALITY = {
+    standard: '128k', higher: '192k', exhigh: '320k', lossless: '无损',
+    hires: 'Hi-Res', jymaster: '母带', dolby: '杜比', sky: '天空', jyeffect: '沉浸',
+  };
+
+  // ------------------------------------------------------------- transport
+  function request(path, options) {
+    var opts = options || {};
+    return fetch(API + path, {
+      headers: { 'Content-Type': 'application/json' },
+      method: opts.method || 'GET',
+      body: opts.body ? JSON.stringify(opts.body) : undefined,
+    }).then(function (response) {
+      return response.text().then(function (text) {
+        var data = {};
+        try { data = text ? JSON.parse(text) : {}; } catch (e) { data = { error: text }; }
+        if (!response.ok) throw new Error(data.error || data.message || ('HTTP ' + response.status));
+        return data;
+      });
+    });
+  }
+
+  /** Current playback position in ms, interpolated from the last report. */
+  function positionMs() {
+    if (!state) return 0;
+    var rep = state.reported || {};
+    var pos = typeof rep.position === 'number' ? rep.position : 0;
+    if (rep.trackId !== state.current?.id) pos = 0;
+    if (!state.playing || rep.blocked) return pos;
+    // `reported.at` is the host's epoch stamp for the report. SSE frames never
+    // fire for a position report, so a local anchor would drift; the stamp is
+    // the only thing that stays true between frames.
+    var at = typeof rep.at === 'number' ? rep.at : Date.now();
+    var elapsed = Date.now() - at;
+    if (elapsed < 0 || elapsed > 3600000) return pos;
+    return Math.min(pos + elapsed, state.current?.duration || Infinity);
+  }
+
+  /** Re-anchor the interpolated clock whenever a fresh state lands. */
+  function anchorClock() {
+    var rep = state?.reported || {};
+    transportPos = typeof rep.position === 'number' ? rep.position : 0;
+    transportAt = performance.now();
+  }
+
+  function control(body) {
+    return request('/control', { method: 'POST', body: body })
+      .then(function (next) { accept(next); })
+      .catch(function (error) { status(error.message); });
+  }
+
+  function accept(next) {
+    if (!next || typeof next !== 'object') return;
+    state = next;
+    anchorClock();
+    render();
+  }
+
+  // ---------------------------------------------------------------- render
+  function fmt(ms) {
+    if (!ms || ms < 0 || !isFinite(ms)) return '00:00';
+    var total = Math.floor(ms / 1000);
+    var m = Math.floor(total / 60);
+    var s = total % 60;
+    return (m < 10 ? '0' : '') + m + ':' + (s < 10 ? '0' : '') + s;
+  }
+
+  function render() {
+    var dock = $('dock');
+    var cur = state?.current;
+    var playing = Boolean(state?.playing);
+    dock.classList.toggle('playing', playing);
+    dock.classList.toggle('idle', !cur);
+
+    $('headlabel').textContent = playing ? '正在播放' : (cur ? '已暂停' : '未在播放');
+
+    if (cur) {
+      $('cover').style.backgroundImage = cur.picUrl ? 'url("' + cur.picUrl + '")' : '';
+      $('title').textContent = cur.name || '未知曲目';
+      $('artist').textContent = (cur.artists && cur.artists.length ? cur.artists.join(' / ') : '未知艺人');
+    } else {
+      $('cover').style.backgroundImage = '';
+      $('title').textContent = '未在播放';
+      $('artist').textContent = '在播放器里点一首歌';
+    }
+
+    var served = state?.audio?.last?.served || state?.audio?.preferred || '';
+    $('badge').textContent = QUALITY[served] || (served ? served.toUpperCase() : '');
+
+    var liked = Boolean(cur && cur.liked);
+    $('like').classList.toggle('on', liked);
+    $('like').innerHTML = liked
+      ? '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M20.8 5.6a5.1 5.1 0 0 0-7.2 0L12 7.2l-1.6-1.6a5.1 5.1 0 1 0-7.2 7.2L12 21.6l8.8-8.8a5.1 5.1 0 0 0 0-7.2z"/></svg>'
+      : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M20.8 5.6a5.1 5.1 0 0 0-7.2 0L12 7.2l-1.6-1.6a5.1 5.1 0 1 0-7.2 7.2L12 21.6l8.8-8.8a5.1 5.1 0 0 0 0-7.2z"/></svg>';
+
+    $('play').innerHTML = playing ? ICON.pause : ICON.play;
+    $('mode').innerHTML = state?.mode === 'shuffle' ? ICON.shuffle : state?.mode === 'single' ? ICON.single : ICON.list;
+    $('mode').title = state?.mode === 'shuffle' ? '随机播放' : state?.mode === 'single' ? '单曲循环' : '列表循环';
+
+    var muted = Boolean(state?.muted);
+    $('mute').innerHTML = muted ? ICON.muted : ICON.vol;
+    $('mute').classList.toggle('on', muted);
+    if (!dragging) $('volume').value = String(Math.round((state?.volume ?? 0.8) * 100));
+
+    $('tdur').textContent = fmt(cur?.duration || 0);
+    paintProgress();
+
+    // AI DJ
+    var dj = state?.dj || {};
+    $('djswitch').classList.toggle('on', Boolean(dj.enabled));
+    var vibe = dj.lastPlan?.vibe || (dj.enabled ? '按你的口味续歌' : '已关闭');
+    $('djvibe').textContent = dj.enabled ? ('AI DJ · ' + vibe) : ('AI DJ · ' + vibe);
+    $('djvibe').title = vibe;
+    // The mood brief is a persisted player setting (`settings.djPrompt`), not
+    // part of the DJ status block. Never overwrite a half-typed brief.
+    if (document.activeElement !== $('djprompt')) $('djprompt').value = state?.settings?.djPrompt ?? '';
+
+    paintQueue();
+    paintLyrics(true);
+    reportHeight();
+  }
+
+  function paintProgress() {
+    if (dragging) return;
+    var cur = state?.current;
+    var duration = cur?.duration || 0;
+    var pos = positionMs();
+    var pct = duration ? Math.max(0, Math.min(100, (pos / duration) * 100)) : 0;
+    $('fill').style.width = pct + '%';
+    $('tpos').textContent = fmt(pos);
+  }
+
+  var queueSig = '';
+  function paintQueue() {
+    var list = state?.queue || [];
+    var index = state?.index ?? -1;
+    $('qcount').textContent = list.length ? (index + 1) + ' / ' + list.length : '';
+    var sig = index + '|' + list.map(function (t) { return t.id; }).join(',');
+    if (sig === queueSig) return;
+    queueSig = sig;
+
+    var host = $('qlist');
+    if (!list.length) {
+      host.innerHTML = '<li class="empty">队列是空的</li>';
+      return;
+    }
+    host.innerHTML = list.map(function (track, i) {
+      var dj = track.queuedBy === 'dj' ? '<span class="djmark">DJ</span>' : '';
+      return '<li class="qitem' + (i === index ? ' cur' : '') + '" data-i="' + i + '">' +
+        '<span class="n">' + (i + 1) + '</span>' +
+        '<span class="t">' + esc(track.name || '') + '</span>' +
+        dj +
+        '<span class="a">' + esc((track.artists || []).join(' / ')) + '</span>' +
+        '</li>';
+    }).join('');
+    revealCurrent(false);
+  }
+
+  var currentTab = 'queue';
+  var lastRevealed = -2;
+  var lastUserScroll = 0;
+
+  /**
+   * Bring the playing row into the middle of the queue's visible slice.
+   *
+   * `scrollIntoView` is deliberately not used: it walks every scrollable
+   * ancestor, and this document sits in an iframe whose parent owns the
+   * sidebar's layout — so it would scroll the outer document and shift the whole
+   * dock instead of just the list. Measuring and setting `scrollTop` touches
+   * only this list.
+   *
+   * @param {boolean} force reveal even when the index has not moved, which is
+   *   what opening the tray or switching back to this tab needs.
+   */
+  function revealCurrent(force) {
+    if (!open || currentTab !== 'queue') return;
+    var index = state?.index ?? -1;
+    if (index < 0) return;
+    if (!force && index === lastRevealed) return;
+    // A track change must not yank someone who is browsing the list. Remember
+    // the index anyway, so the jump does not happen late, once they stop.
+    if (!force && Date.now() - lastUserScroll < 5000) {
+      lastRevealed = index;
+      return;
+    }
+    var list = $('qlist');
+    var row = list.querySelector('.qitem.cur');
+    if (!row) return;
+    lastRevealed = index;
+    var listRect = list.getBoundingClientRect();
+    var rowRect = row.getBoundingClientRect();
+    if (listRect.height === 0) return;
+    var delta = (rowRect.top - listRect.top) - (listRect.height - rowRect.height) / 2;
+    list.scrollTop = Math.max(0, list.scrollTop + delta);
+  }
+
+  function esc(value) {
+    return String(value).replace(/[&<>"']/g, function (ch) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch];
+    });
+  }
+
+  // ---------------------------------------------------------------- lyrics
+  function parseLrc(text) {
+    var lines = [];
+    String(text || '').split('\n').forEach(function (raw) {
+      var matches = raw.match(/\[(\d+):(\d+(?:[.:]\d+)?)\]/g);
+      var label = raw.replace(/\[[^\]]*\]/g, '').trim();
+      if (!matches) return;
+      matches.forEach(function (tag) {
+        var m = tag.match(/\[(\d+):(\d+(?:[.:]\d+)?)\]/);
+        if (!m) return;
+        lines.push({ at: (Number(m[1]) * 60 + Number(String(m[2]).replace(':', '.'))) * 1000, text: label });
+      });
+    });
+    lines.sort(function (a, b) { return a.at - b.at; });
+    return lines;
+  }
+
+  var lyricLoads = {};
+  function loadLyrics(id) {
+    if (!id) return;
+    if (lyricTrack === id) return;
+    if (lyricLoads[id]) return;
+    lyricTrack = id;
+    lyric = [];
+    translation = [];
+    romaji = [];
+    lyricLine = -2;
+    $('lyrics').classList.add('plain');
+    $('lcur').textContent = '♪';
+    $('lprev').textContent = '';
+    $('lnext').textContent = '';
+    $('ltrans').textContent = '';
+
+    lyricLoads[id] = request('/lyric/' + id)
+      .then(function (data) {
+        if (lyricTrack !== id) return;
+        if (data.noLyric || !data.lrc) { $('lcur').textContent = '纯音乐 / 暂无歌词'; return; }
+        lyric = parseLrc(data.lrc);
+        // `translated` and `romaji` are LRC timelines of their own, not a
+        // per-line field: the host returns them as parallel strings.
+        translation = data.translated ? parseLrc(data.translated) : [];
+        romaji = data.romaji ? parseLrc(data.romaji) : [];
+        $('lyrics').classList.toggle('plain', lyric.length === 0);
+        lyricLine = -2;
+        paintLyrics(true);
+      })
+      .catch(function () {
+        if (lyricTrack === id) $('lcur').textContent = '歌词加载失败';
+      })
+      .then(function () { delete lyricLoads[id]; });
+  }
+
+  function paintLyrics(force) {
+    if (!lyric.length) {
+      if (force) $('ltrans').textContent = '';
+      return;
+    }
+    var at = positionMs();
+    var active = -1;
+    for (var i = 0; i < lyric.length; i++) {
+      if (lyric[i].at <= at) active = i; else break;
+    }
+    if (!force && active === lyricLine) return;
+    lyricLine = active;
+    var current = active >= 0 ? lyric[active].text : (lyric[0] ? lyric[0].text : '♪');
+    $('lprev').textContent = active > 0 ? lyric[active - 1].text : '';
+    $('lcur').textContent = current;
+    $('lnext').textContent = active + 1 < lyric.length ? lyric[active + 1].text : '';
+
+    // The translation carries its own timestamps, so it is aligned by time on
+    // its own timeline rather than by line index — the two are rarely 1:1.
+    var line = '';
+    if (showTranslation) {
+      var source = translation.length ? translation : romaji;
+      var trActive = -1;
+      for (var j = 0; j < source.length; j++) {
+        if (source[j].at <= at) trActive = j; else break;
+      }
+      if (trActive >= 0) line = source[trActive].text;
+      // A translation identical to the original says nothing worth a row.
+      if (line === current) line = '';
+    }
+    $('ltrans').textContent = line;
+  }
+
+  // ---------------------------------------------------------- height report
+  var lastHeight = 0;
+  function reportHeight() {
+    // Measured from the dock, not the body: the body is transparent padding.
+    var dock = $('dock');
+    var height = Math.ceil(dock.getBoundingClientRect().height) + 8;
+    if (height === lastHeight) return;
+    lastHeight = height;
+    try {
+      parent.postMessage({ type: 'dsh-music-dock:height', height: height }, '*');
+    } catch (e) { /* a standalone page has no parent frame to size */ }
+  }
+
+  // ------------------------------------------------------------ interaction
+  function status(text) { $('status').textContent = text; }
+
+  $('play').addEventListener('click', function () { control({ action: 'toggle' }); });
+  $('prev').addEventListener('click', function () { control({ action: 'previous' }); });
+  $('next').addEventListener('click', function () { control({ action: 'next' }); });
+  $('mode').addEventListener('click', function () {
+    var order = { list: 'shuffle', shuffle: 'single', single: 'list' };
+    control({ action: 'mode', value: order[state?.mode] || 'list' });
+  });
+  $('mute').addEventListener('click', function () { control({ action: 'mute', value: !state?.muted }); });
+
+  $('volume').addEventListener('pointerdown', function () { dragging = true; });
+  $('volume').addEventListener('input', function (event) {
+    $('fill'); // no-op: the volume bar is its own control
+    dragging = true;
+  });
+  $('volume').addEventListener('change', function (event) {
+    dragging = false;
+    control({ action: 'volume', value: Number(event.target.value) / 100 });
+  });
+
+  $('bar').addEventListener('click', function (event) {
+    var duration = state?.current?.duration || 0;
+    if (!duration) return;
+    var rect = $('bar').getBoundingClientRect();
+    var ratio = Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width));
+    $('fill').style.width = (ratio * 100) + '%';
+    $('tpos').textContent = fmt(ratio * duration);
+    control({ action: 'seek', value: Math.round(ratio * duration) });
+  });
+
+  $('like').addEventListener('click', function () {
+    var cur = state?.current;
+    if (!cur) return;
+    // The host's enum is liked|none|disliked — not "like".
+    request('/taste', { method: 'POST', body: { trackId: cur.id, level: cur.liked ? 'none' : 'liked' } })
+      .then(function (next) { accept(next); })
+      .catch(function (error) { status(error.message); });
+  });
+
+  // Lyrics translation toggle. Painted from the stored preference first, so the
+  // button reads correctly before any lyric has loaded.
+  $('trtoggle').classList.toggle('on', showTranslation);
+  $('trtoggle').addEventListener('click', function () {
+    showTranslation = !showTranslation;
+    writePref('dsh-music-dock:translation', showTranslation);
+    $('trtoggle').classList.toggle('on', showTranslation);
+    paintLyrics(true);
+  });
+
+  function sendDj(body) {
+    return request('/dj', { method: 'POST', body: body })
+      .then(function (next) { accept(next); })
+      .catch(function (error) { status(error.message); });
+  }
+
+  $('djswitch').addEventListener('click', function () {
+    void sendDj({ enabled: !state?.dj?.enabled, prompt: $('djprompt').value });
+  });
+
+  function commitMood() {
+    void sendDj({ prompt: $('djprompt').value, enabled: Boolean(state?.dj?.enabled) });
+  }
+  $('djprompt').addEventListener('change', commitMood);
+  $('djprompt').addEventListener('keydown', function (event) {
+    if (event.key !== 'Enter') return;
+    event.preventDefault();
+    $('djprompt').blur();
+    commitMood();
+  });
+  $('djreplan').addEventListener('click', function () {
+    // Replan with the typed brief right away; it also switches the DJ on,
+    // since a plan nobody asked to run would otherwise never be applied.
+    void sendDj({ prompt: $('djprompt').value, enabled: true, replan: true });
+  });
+
+  function setOpen(next) {
+    open = next;
+    $('dock').classList.toggle('open', open);
+    $('chev').style.transform = open ? 'rotate(180deg)' : '';
+    reportHeight();
+    // Opening the tray is exactly when the playing row must be found for the
+    // user: the queue is hundreds of rows long and the cursor is rarely near
+    // the top.
+    if (open) revealCurrent(true);
+  }
+  $('chev').addEventListener('click', function () { setOpen(!open); });
+  $('qbtn').addEventListener('click', function () { setOpen(!open); });
+
+  $('qlist').addEventListener('click', function (event) {
+    var row = event.target.closest('.qitem');
+    if (!row) return;
+    request('/queue', { method: 'POST', body: { action: 'jump', index: Number(row.dataset.i) } })
+      .then(function (next) { accept(next); })
+      .catch(function (error) { status(error.message); });
+  });
+
+  // Direct interaction with the list, not the `scroll` event: our own
+  // `scrollTop` writes fire `scroll` too, and would look like the user.
+  ['wheel', 'touchstart', 'pointerdown', 'keydown'].forEach(function (name) {
+    $('qlist').addEventListener(name, function () { lastUserScroll = Date.now(); }, { passive: true });
+  });
+
+  // -------------------------------------------------- tray: queue/lists/search
+  var listsState = { loaded: false, items: [], tracks: [] };
+  var searchState = { seq: 0, tracks: [] };
+  var searchTimer;
+
+  function setTab(next) {
+    currentTab = next;
+    document.querySelectorAll('.tab').forEach(function (el) {
+      el.classList.toggle('on', el.dataset.tab === next);
+    });
+    $('pane-queue').hidden = next !== 'queue';
+    $('pane-lists').hidden = next !== 'lists';
+    $('pane-search').hidden = next !== 'search';
+    if (next === 'lists' && !listsState.loaded) void loadPlaylists();
+    if (next === 'search') setTimeout(function () { $('sinput').focus(); }, 40);
+    reportHeight();
+    if (next === 'queue') revealCurrent(true);
+  }
+
+  var ICON_NEXT = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 5v14l9-7-9-7zM15 5h2v14h-2z"/></svg>';
+  var ICON_PLUS = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>';
+
+  function trackRows(tracks) {
+    return tracks.map(function (t, i) {
+      return '<li class="qitem" data-i="' + i + '">' +
+        '<span class="n">' + (i + 1) + '</span>' +
+        '<span class="t">' + esc(t.name || '') + '</span>' +
+        '<span class="a">' + esc((t.artists || []).join(' / ')) + '</span>' +
+        '<span class="acts">' +
+        '<button class="act" type="button" data-act="next" title="下一首播放">' + ICON_NEXT + '</button>' +
+        '<button class="act" type="button" data-act="append" title="加到队尾">' + ICON_PLUS + '</button>' +
+        '</span>' +
+        '</li>';
+    }).join('');
+  }
+
+  /**
+   * Queue an existing track instead of replacing the queue.
+   *
+   * Clicking a row plays it, which goes through `/play` and swaps the WHOLE
+   * queue — the wrong outcome when the point is to add one song to a queue of
+   * two hundred. These two actions use `/queue` so the current queue survives.
+   */
+  function trackAction(track, kind) {
+    if (!track) return;
+    // `insert` maps to the host's `insertNext`: it always lands right after the
+    // current track and ignores `index`, so nothing is sent for placement.
+    var where = kind === 'next'
+      ? { action: 'insert', tracks: [track] }
+      : { action: 'append', tracks: [track] };
+    request('/queue', { method: 'POST', body: where })
+      .then(function (next) {
+        accept(next);
+        status(kind === 'next' ? '已插到下一首' : '已加到队尾');
+      })
+      .catch(function (error) { status(error.message); });
+  }
+
+  function loadPlaylists() {
+    listsState.loaded = true;
+    $('plist').innerHTML = '<li class="empty">加载中…</li>';
+    // Prefer the account's own library. That route is added by
+    // patches/apply-my-playlists.mjs; when it is absent (fresh upgrade, or a
+    // signed-out host) fall back to the recommended list rather than an error.
+    request('/my-playlists')
+      .then(function (items) {
+        listsState.items = Array.isArray(items) ? items : [];
+        listsState.mine = true;
+        paintPlaylists();
+      })
+      .catch(function () {
+        return request('/playlists').then(function (items) {
+          listsState.items = Array.isArray(items) ? items : [];
+          listsState.mine = false;
+          paintPlaylists();
+        });
+      })
+      .catch(function (error) {
+        listsState.loaded = false;
+        $('plist').innerHTML = '<li class="empty">' + esc(error.message) + '</li>';
+      });
+  }
+
+  function playlistRow(item) {
+    var cover = item.cover ? ' style="background-image:url(&quot;' + esc(item.cover) + '&quot;)"' : '';
+    return '<li class="plitem" data-id="' + esc(String(item.id)) + '">' +
+      '<span class="cov"' + cover + '></span>' +
+      '<span class="nm">' + esc(item.name || '') + '</span>' +
+      '<span class="ct">' + (item.trackCount || 0) + '</span>' +
+      '</li>';
+  }
+
+  function paintPlaylists() {
+    listsState.tracks = [];
+    if (!listsState.items.length) {
+      $('plist').innerHTML = '<li class="empty">没有歌单</li>';
+      return;
+    }
+
+    var groups;
+    if (listsState.mine) {
+      // `specialType: 5` is 我喜欢的音乐; `subscribed` splits saved from created.
+      var liked = listsState.items.filter(function (item) { return item.specialType === 5; });
+      var created = listsState.items.filter(function (item) {
+        return item.specialType !== 5 && item.subscribed !== true;
+      });
+      var saved = listsState.items.filter(function (item) {
+        return item.specialType !== 5 && item.subscribed === true;
+      });
+      groups = [
+        ['我喜欢的音乐', liked],
+        ['我创建的', created],
+        ['我收藏的', saved],
+      ].filter(function (group) { return group[1].length > 0; });
+    } else {
+      groups = [['推荐歌单', listsState.items]];
+    }
+
+    $('plist').innerHTML = groups.map(function (group) {
+      return '<li class="trayhead" style="margin-top:4px"><span>' + esc(group[0]) + '</span>' +
+        '<span class="spacer"></span><span>' + group[1].length + '</span></li>' +
+        group[1].map(playlistRow).join('');
+    }).join('');
+    reportHeight();
+  }
+
+  function openPlaylist(id) {
+    $('plist').innerHTML = '<li class="empty">加载中…</li>';
+    request('/playlist/' + encodeURIComponent(id))
+      .then(function (data) {
+        listsState.tracks = data.tracks || [];
+        $('plist').innerHTML =
+          '<li class="backrow"><button id="plback">‹ 返回歌单</button>' +
+          '<span style="flex:1 1 auto"></span>' +
+          '<span>' + (listsState.tracks.length) + ' 首</span></li>' +
+          trackRows(listsState.tracks);
+        reportHeight();
+      })
+      .catch(function (error) {
+        $('plist').innerHTML = '<li class="empty">' + esc(error.message) + '</li>';
+      });
+  }
+
+  function playTracks(tracks, index) {
+    return request('/play', { method: 'POST', body: { tracks: tracks, startIndex: index || 0 } })
+      .then(function (next) { accept(next); })
+      .catch(function (error) { status(error.message); });
+  }
+
+  function doSearch() {
+    var q = $('sinput').value.trim();
+    if (!q) { searchState.tracks = []; $('slist').innerHTML = ''; reportHeight(); return; }
+    var seq = ++searchState.seq;
+    $('slist').innerHTML = '<li class="empty">搜索中…</li>';
+    request('/search?q=' + encodeURIComponent(q) + '&limit=20')
+      .then(function (data) {
+        if (seq !== searchState.seq) return;
+        searchState.tracks = data.tracks || [];
+        $('slist').innerHTML = searchState.tracks.length
+          ? trackRows(searchState.tracks)
+          : '<li class="empty">没有找到</li>';
+        reportHeight();
+      })
+      .catch(function (error) {
+        if (seq !== searchState.seq) return;
+        $('slist').innerHTML = '<li class="empty">' + esc(error.message) + '</li>';
+        reportHeight();
+      });
+  }
+
+  document.querySelectorAll('.tab').forEach(function (el) {
+    el.addEventListener('click', function () { setTab(el.dataset.tab); });
+  });
+
+  $('sinput').addEventListener('input', function () {
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(doSearch, 320);
+  });
+  $('sinput').addEventListener('keydown', function (event) {
+    if (event.key === 'Enter') { clearTimeout(searchTimer); doSearch(); }
+  });
+
+  $('slist').addEventListener('click', function (event) {
+    var row = event.target.closest('.qitem');
+    if (!row) return;
+    var track = searchState.tracks[Number(row.dataset.i)];
+    var act = event.target.closest('.act');
+    if (act) { trackAction(track, act.dataset.act); return; }
+    if (track) void playTracks([track], 0);
+  });
+
+  $('plist').addEventListener('click', function (event) {
+    if (event.target.id === 'plback') { paintPlaylists(); return; }
+    var row = event.target.closest('.qitem');
+    if (row) {
+      var track = listsState.tracks[Number(row.dataset.i)];
+      var act = event.target.closest('.act');
+      if (act) { trackAction(track, act.dataset.act); return; }
+      if (track) void playTracks(listsState.tracks, Number(row.dataset.i));
+      return;
+    }
+    var item = event.target.closest('.plitem');
+    if (item) void openPlaylist(item.dataset.id);
+  });
+
+  if (RAIL) $('cover').addEventListener('click', function () { setOpen(!open); });
+
+  // ------------------------------------------------------------ state feed
+  function subscribe() {
+    if (!window.EventSource) return null;
+    var source = new EventSource(API + '/events');
+    source.addEventListener('state', function (event) {
+      try {
+        accept(JSON.parse(event.data));
+        status('已连接');
+        $('dot').classList.add('live');
+      } catch (e) { /* a garbled frame; the next one carries whole state */ }
+    });
+    source.addEventListener('error', function () {
+      $('dot').classList.remove('live');
+      status('重连中…');
+    });
+    source.addEventListener('open', function () {
+      $('dot').classList.add('live');
+      status('已连接');
+    });
+    return source;
+  }
+
+  function boot() {
+    request('/state')
+      .then(function (data) {
+        accept(data);
+        $('dot').classList.add('live');
+        status('已连接');
+        loadLyrics(state?.current?.id);
+      })
+      .catch(function () {
+        status('未连接音乐插件');
+      });
+    subscribe();
+    if (RAIL) setInterval(reportHeight, 800);
+  }
+
+  // A lyric line and the progress bar need a finer clock than the host pushes.
+  setInterval(function () {
+    if (!state) return;
+    paintProgress();
+    paintLyrics(false);
+  }, 200);
+
+  // Track changes need their lyric fetched.
+  setInterval(function () {
+    var id = state?.current?.id;
+    if (id && id !== lyricTrack) loadLyrics(id);
+  }, 1000);
+
+  // The dock re-measures on open/close and on resize.
+  if (window.ResizeObserver) {
+    new ResizeObserver(function () { reportHeight(); }).observe($('dock'));
+  }
+  window.addEventListener('load', function () { reportHeight(); });
+
+  // ------------------------------------------------------------ self-reload
+  /*
+   * The host publishes widget.html's mtime as `rev`. Compare it with the value
+   * this document booted from: when it moves, the file was edited, so reload.
+   *
+   * This exists because widget.html is not a plugin module — plugin HMR does
+   * not watch it, and the production desktop shell has no page-reload shortcut
+   * — so without this an edit would never reach a dock that is already open.
+   * It only runs while the dock has an open event stream (i.e. someone is
+   * looking at it), and never fires on the first probe.
+   */
+  var bootRev = null;
+  function checkRev() {
+    if (document.hidden) return;
+    fetch('/music-dock/health', { cache: 'no-store' })
+      .then(function (response) { return response.json(); })
+      .then(function (data) {
+        if (!data || !data.rev) return;
+        if (bootRev === null) { bootRev = data.rev; return; }
+        if (data.rev !== bootRev) location.reload();
+      })
+      .catch(function () { /* the host may be mid-reload; next tick retries */ });
+  }
+  setInterval(checkRev, 6000);
+
+  boot();
+})();
+</script>
+</body>
+</html>

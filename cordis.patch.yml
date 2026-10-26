@@ -1,0 +1,23 @@
+# dsh-music-dock 的组合层 patch。
+#
+# 声明 `dsh.bundle.patch` 后，`dsh plugin --profile <name> add <包名|tgz>` 会把这个包
+# 追加进 profile 的 `dsh.profile.bundles` 列表，本文件里的插入行自动生效。
+#
+# 覆盖 config：在 profile 自己的 cordis.patch.yml 里写一个同 id 的顶层条目即可
+# （patch 是整行替换，不做深度合并）：
+#
+#   - id: music-dock
+#     config:
+#       apiPrefix: 'music'
+#       height: 168
+#
+- insert:
+    - id: music-dock
+      name: 'dsh-music-dock'
+      config:
+        # 上游音乐插件的路由前缀（@doitian/dsh-music 默认 'music'）。
+        apiPrefix: 'music'
+        # 侧边栏里这块面板的高度（px）。展开态用它；导轨态固定 40。
+        height: 168
+        # 面板在 sidebar.footer.action 里的排序。
+        order: 10
