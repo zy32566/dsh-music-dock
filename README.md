@@ -49,27 +49,40 @@ dsh plugin --profile desktop add github:<you>/dsh-music-dock
 
 收起成 56px 导轨时,整张卡片退化成一个封面按钮。
 
-## 需要一处宿主补丁(重要)
+## 需要两处宿主补丁(重要)
 
-上游 `@doitian/dsh-music` **内部实现了** `userPlaylists(uid)`(你自建 + 收藏的歌单,含 `specialType: 5` 的"我喜欢的音乐"),但**没有任何路由暴露它**。它的 `/api/playlists` 返回的是 `personalizedPlaylist`——个性化推荐,不是你的歌单。
-
-所以"歌单"标签页要显示你自己的歌单,需要给宿主加一个约 8 行的路由:
+两处都是**可选**的:不打补丁插件照常工作,只是有两处体验降级。两条命令:
 
 ```sh
-node patches/apply-my-playlists.mjs
+node patches/apply-my-playlists.mjs     # 让"歌单"页显示你自己的歌单
+node patches/hide-sidebar-entry.mjs     # 去掉宿主自己的那个侧边栏入口
 ```
 
-脚本是**幂等**的,并且在上游文件结构变化导致锚点找不到时会**报错退出而不是乱写**。升级 `@doitian/dsh-music` 会覆盖 `node_modules`,升级后重新跑一次即可。
+脚本都是**幂等**的,并且在上游文件结构变化导致锚点找不到时会**报错退出而不是乱写**。升级 `@doitian/dsh-music` 会覆盖 `node_modules`,升级后两条都重跑一次。加 `--check` 只检查不改。
 
-`--check` 只检查不改:
+### 补丁一:暴露"你自己的歌单"
 
-```sh
-node patches/apply-my-playlists.mjs --check
+上游**内部实现了** `userPlaylists(uid)`(自建 + 收藏,含 `specialType: 5` 的"我喜欢的音乐"),但**没有任何路由暴露它**。它的 `/api/playlists` 返回的是 `personalizedPlaylist`——个性化推荐,不是你的歌单。
+
+补丁给宿主加一个约 8 行的路由。
+
+**不打补丁**:歌单页自动降级到推荐歌单,不报错。
+
+### 补丁二:去掉宿主自己的侧边栏入口
+
+侧边栏是从 `sidebar.panellist` 插槽的**全部注册项**生成行的:
+
+```js
+const next = ctx.slots.entriesOfSlot("sidebar.panellist").map(({ options }) => …)
 ```
 
-**不打补丁也能用**:歌单页会自动降级到推荐歌单,不会报错。
+注册项上**没有** `hidden` / `when` / `enabled` 字段,列表也不做过滤,所以别的插件无法隐藏别人的行——只能让宿主别注册。去掉之后侧边栏只剩本插件的播放卡片,不会有两个音乐入口。
 
-> 更好的做法是把这个路由提 PR 合进上游,那样补丁就不需要了。欢迎去 `doitian/dsh-music` 开 issue。
+**不打补丁**:侧边栏会同时出现宿主自己的 `Music` 入口,和本插件的卡片重复。
+
+> ⚠️ 去掉的只是**应用内的导航行**,完整面板并没有消失——宿主仍在 `http://127.0.0.1:<端口>/music/panel` 提供它,**音质切换、AI DJ 模型选择、听歌记录开关、歌曲详情**都在那个页面上(dock 目前不画这些)。`main` 插槽的注册被刻意保留了。
+
+> 更好的做法是把这两处都提 PR 合进上游,那样补丁就不需要了。欢迎去 `doitian/dsh-music` 开 issue。
 
 ## 架构
 
