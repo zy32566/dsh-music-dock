@@ -32,14 +32,14 @@
     "sidebar"
   ],
   "license": "MIT",
-  "author": "<YOUR NAME>",
-  "homepage": "https://github.com/<you>/dsh-music-dock#readme",
+  "author": "zy32566",
+  "homepage": "https://github.com/zy32566/dsh-music-dock#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/<you>/dsh-music-dock.git"
+    "url": "git+https://github.com/zy32566/dsh-music-dock.git"
   },
   "bugs": {
-    "url": "https://github.com/<you>/dsh-music-dock/issues"
+    "url": "https://github.com/zy32566/dsh-music-dock/issues"
   },
   "engines": {
     "node": ">=20"

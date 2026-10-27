@@ -23,7 +23,7 @@ dsh plugin --profile desktop add @doitian/dsh-music
 然后安装本插件:
 
 ```sh
-dsh plugin --profile desktop add github:<you>/dsh-music-dock
+dsh plugin --profile desktop add github:zy32566/dsh-music-dock
 ```
 
 重启 Harness。侧边栏底部会出现播放卡片。
