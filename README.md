@@ -49,18 +49,41 @@ dsh plugin --profile desktop add github:zy32566/dsh-music-dock
 
 收起成 56px 导轨时,整张卡片退化成一个封面按钮。
 
-## 需要两处宿主补丁(重要)
+## 需要三处宿主补丁(重要)
 
-两处都是**可选**的:不打补丁插件照常工作,只是有两处体验降级。两条命令:
+前两处是**可选**的(不打只是体验降级);**第三处修的是搜索失效**,不打就搜不了。三条命令:
 
 ```sh
-node patches/apply-my-playlists.mjs     # 让"歌单"页显示你自己的歌单
-node patches/hide-sidebar-entry.mjs     # 去掉宿主自己的那个侧边栏入口
+node patches/fix-search-rate-limit.mjs   # 修搜索(建议必打)
+node patches/apply-my-playlists.mjs      # 让"歌单"页显示你自己的歌单
+node patches/hide-sidebar-entry.mjs      # 去掉宿主自己的那个侧边栏入口
 ```
 
-脚本都是**幂等**的,并且在上游文件结构变化导致锚点找不到时会**报错退出而不是乱写**。升级 `@doitian/dsh-music` 会覆盖 `node_modules`,升级后两条都重跑一次。加 `--check` 只检查不改。
+脚本都是**幂等**的,并且在上游文件结构变化导致锚点找不到时会**报错退出而不是乱写**。升级 `@doitian/dsh-music` 会覆盖 `node_modules`,升级后三条都重跑一次。加 `--check` 只检查不改。
 
-### 补丁一:暴露"你自己的歌单"
+### 补丁一:修搜索(网易云限流)
+
+宿主的搜索走老接口 `GET /api/search/get/web`,**带账号 Cookie**。网易云现在对这个组合返回:
+
+```json
+{"msg":"操作频繁，请稍候再试","code":405}
+```
+
+实测(持续数天,不是瞬时):
+
+| 请求 | 结果 |
+|---|---|
+| `search/get/web` **带 Cookie** | ❌ `code 405` |
+| `search/get/web` **不带 Cookie** | ✅ 273 条(连续 3 次稳定) |
+| `POST /api/cloudsearch/pc` 带 Cookie | ✅ 273 条 |
+
+`cloudsearch/pc` 虽然能用,但它返回的是**新字段名**(`ar`/`al`/`dt`/`mv`),而宿主的 `normalizeTrack` 读的是旧名(`artists`/`album`/`duration`/`mvid`),换接口要连带重写映射。搜索结果本来就是公开数据,Cookie 在这里不带来任何东西——所以补丁**让搜索请求不带 Cookie**,这是恢复功能的最小改动。
+
+补丁同时修了一个**让故障不可见**的上游 bug:`searchSongs` 只读 `result.songCount ?? 0`,**完全忽略 `code`**,于是 405 被当成正常的"0 条结果"——这就是为什么界面上什么都不说。补丁改成非 200 就抛错,原因能传到播放器里。
+
+**不打补丁**:搜索恒返回 0 条,且不报错。
+
+### 补丁二:暴露"你自己的歌单"
 
 上游**内部实现了** `userPlaylists(uid)`(自建 + 收藏,含 `specialType: 5` 的"我喜欢的音乐"),但**没有任何路由暴露它**。它的 `/api/playlists` 返回的是 `personalizedPlaylist`——个性化推荐,不是你的歌单。
 
@@ -68,7 +91,7 @@ node patches/hide-sidebar-entry.mjs     # 去掉宿主自己的那个侧边栏�
 
 **不打补丁**:歌单页自动降级到推荐歌单,不报错。
 
-### 补丁二:去掉宿主自己的侧边栏入口
+### 补丁三:去掉宿主自己的侧边栏入口
 
 侧边栏是从 `sidebar.panellist` 插槽的**全部注册项**生成行的:
 
@@ -122,9 +145,10 @@ DSH_PORT=55645 node tools/preview.mjs   # 指定 Harness 端口
 
 ## 已知问题
 
-- **搜索恒返回 0 条**。宿主的 `/api/search` 对任何关键词都返回 `{"total":0,"tracks":[]}`,同一会话下 `/lyric`、`/playlists`、`/playlists` 都正常,所以不是鉴权问题,是网易云侧 eapi 搜索接口的问题。**这会同时影响宿主自己的面板**,不是本插件引入的。修它需要改宿主的 `src/sdk/wy/musicSearch.js`。
+- **搜索:靠补丁修复,且随时可能再次被限流**(见上文"补丁一")。网易云对老搜索接口限流是按账号生效的,换关键词、换时间都可能再次触发;补丁让它至少**报错而不是假装没有结果**。
 - 部分英文歌网易云没有提供中文翻译,此时翻译行显示为空(不会报错)。
 - "我喜欢的音乐"里的曲目依赖宿主已有的 likes 缓存,首次可能较慢。
+- dock 不画**音质切换 / AI DJ 模型选择 / 听歌记录开关 / 歌曲详情**,这些仍在宿主的完整面板里(`/music/panel`)。去掉侧边栏入口后,需要时直接用浏览器打开该地址。
 
 ## 安全
 
