@@ -315,6 +315,7 @@
       <button class="tab on" data-tab="queue">队列</button>
       <button class="tab" data-tab="lists">歌单</button>
       <button class="tab" data-tab="search">搜索</button>
+      <button class="tab" data-tab="podcast">播客</button>
     </div>
     <div class="pane" id="pane-queue">
       <div class="trayhead"><span>播放列表</span><span class="spacer"></span><span id="qcount"></span></div>
@@ -328,6 +329,12 @@
         <input id="sinput" type="search" placeholder="搜索歌曲 / 歌手…" autocomplete="off" spellcheck="false">
       </div>
       <ul class="qlist" id="slist"></ul>
+    </div>
+    <div class="pane" id="pane-podcast" hidden>
+      <div class="searchrow">
+        <input id="pinput" type="search" placeholder="搜索播客 / 电台…" autocomplete="off" spellcheck="false">
+      </div>
+      <ul class="qlist" id="podlist"></ul>
     </div>
   </div>
 </div>
@@ -449,9 +456,12 @@
   function fmt(ms) {
     if (!ms || ms < 0 || !isFinite(ms)) return '00:00';
     var total = Math.floor(ms / 1000);
-    var m = Math.floor(total / 60);
+    var h = Math.floor(total / 3600);
+    var m = Math.floor((total % 3600) / 60);
     var s = total % 60;
-    return (m < 10 ? '0' : '') + m + ':' + (s < 10 ? '0' : '') + s;
+    var pad = function (n) { return (n < 10 ? '0' : '') + n; };
+    // A podcast episode runs for hours; mm:ss would read "201:22".
+    return h > 0 ? h + ':' + pad(m) + ':' + pad(s) : pad(m) + ':' + pad(s);
   }
 
   function render() {
@@ -804,7 +814,9 @@
     $('pane-queue').hidden = next !== 'queue';
     $('pane-lists').hidden = next !== 'lists';
     $('pane-search').hidden = next !== 'search';
+    $('pane-podcast').hidden = next !== 'podcast';
     if (next === 'lists' && !listsState.loaded) void loadPlaylists();
+    if (next === 'podcast' && !podState.loaded) void loadPodcasts();
     if (next === 'search') setTimeout(function () { $('sinput').focus(); }, 40);
     reportHeight();
     if (next === 'queue') revealCurrent(true);
@@ -994,6 +1006,122 @@
     }
     var item = event.target.closest('.plitem');
     if (item) void openPlaylist(item.dataset.id);
+  });
+
+  // ----------------------------------------------------------------- podcast
+  /*
+   * Podcasts are songs on NetEase: a program carries `mainSong`, and the host's
+   * new listing routes normalize it into the same Track shape the queue uses.
+   * So an episode plays through the existing `/play` + `/stream` path, and the
+   * per-row ⏭ / ＋ actions work unchanged — nothing podcast-specific is needed
+   * on the playback side.
+   *
+   * A radio is a container, not something to play, so it gets its own row and
+   * its own level: radios first, then that radio's episodes.
+   */
+  var podState = { loaded: false, radios: [], tracks: [], level: 'radios' };
+
+  function radioRow(radio) {
+    var cover = radio.cover ? ' style="background-image:url(&quot;' + esc(radio.cover) + '&quot;)"' : '';
+    return '<li class="plitem" data-radio="' + esc(String(radio.id)) + '">' +
+      '<span class="cov"' + cover + '></span>' +
+      '<span class="nm">' + esc(radio.name || '') + '</span>' +
+      '<span class="ct">' + (radio.programCount || 0) + '</span>' +
+      '</li>';
+  }
+
+  function paintRadios(radios, title) {
+    podState.tracks = [];
+    podState.level = 'radios';
+    if (!radios.length) {
+      $('podlist').innerHTML = '<li class="empty">没有播客</li>';
+      reportHeight();
+      return;
+    }
+    $('podlist').innerHTML =
+      '<li class="trayhead" style="margin-top:4px"><span>' + esc(title) + '</span>' +
+      '<span class="spacer"></span><span>' + radios.length + '</span></li>' +
+      radios.map(radioRow).join('');
+    reportHeight();
+  }
+
+  function loadPodcasts() {
+    podState.loaded = true;
+    $('podlist').innerHTML = '<li class="empty">加载中…</li>';
+    request('/podcasts/subscribed')
+      .then(function (data) {
+        podState.radios = (data && data.radios) || [];
+        paintRadios(podState.radios, '我订阅的播客');
+      })
+      .catch(function (error) {
+        podState.loaded = false;
+        $('podlist').innerHTML = '<li class="empty">' + esc(error.message) + '</li>';
+      });
+  }
+
+  function openRadio(id) {
+    $('podlist').innerHTML = '<li class="empty">加载中…</li>';
+    request('/podcasts/programs?radioId=' + encodeURIComponent(id) + '&limit=50')
+      .then(function (data) {
+        podState.tracks = (data && data.tracks) || [];
+        podState.level = 'programs';
+        $('podlist').innerHTML =
+          '<li class="backrow"><button id="podback">‹ 返回播客</button>' +
+          '<span style="flex:1 1 auto"></span>' +
+          '<span>' + podState.tracks.length + ' 期</span></li>' +
+          (podState.tracks.length
+            ? trackRows(podState.tracks)
+            : '<li class="empty">这一台还没有节目</li>');
+        reportHeight();
+      })
+      .catch(function (error) {
+        $('podlist').innerHTML = '<li class="empty">' + esc(error.message) + '</li>';
+      });
+  }
+
+  var podTimer;
+  function doPodcastSearch() {
+    var q = $('pinput').value.trim();
+    if (!q) { loadPodcasts(); return; }
+    var seq = ++searchState.seq;
+    $('podlist').innerHTML = '<li class="empty">搜索中…</li>';
+    request('/podcasts/search?q=' + encodeURIComponent(q) + '&limit=15')
+      .then(function (data) {
+        if (seq !== searchState.seq) return;
+        paintRadios((data && data.radios) || [], '搜索结果');
+      })
+      .catch(function (error) {
+        if (seq !== searchState.seq) return;
+        $('podlist').innerHTML = '<li class="empty">' + esc(error.message) + '</li>';
+      });
+  }
+
+  $('pinput').addEventListener('input', function () {
+    clearTimeout(podTimer);
+    podTimer = setTimeout(doPodcastSearch, 320);
+  });
+  $('pinput').addEventListener('keydown', function (event) {
+    if (event.key === 'Enter') { clearTimeout(podTimer); doPodcastSearch(); }
+  });
+
+  $('podlist').addEventListener('click', function (event) {
+    if (event.target.id === 'podback') { paintRadios(podState.radios, '我订阅的播客'); return; }
+    var act = event.target.closest('.act');
+    if (act) {
+      var actedRow = act.closest('.qitem');
+      var acted = actedRow && podState.tracks[Number(actedRow.dataset.i)];
+      if (acted) trackAction(acted, act.dataset.act);
+      return;
+    }
+    var row = event.target.closest('.qitem');
+    if (row) {
+      // Playing from an episode starts the show there and continues through it:
+      // a podcast wants its own run of episodes, not one track.
+      if (podState.tracks.length) void playTracks(podState.tracks, Number(row.dataset.i));
+      return;
+    }
+    var radio = event.target.closest('.plitem');
+    if (radio) void openRadio(radio.dataset.radio);
   });
 
   if (RAIL) $('cover').addEventListener('click', function () { setOpen(!open); });
